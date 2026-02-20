@@ -79,9 +79,20 @@
    </item>
    <item>
     <widget class="QTreeWidget" name="premake_tree">
+     <property name="rootIsDecorated">
+      <bool>true</bool>
+     </property>
+     <property name="headerHidden">
+      <bool>false</bool>
+     </property>
      <column>
       <property name="text">
-       <string notr="true">1</string>
+       <string>Name</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Value</string>
       </property>
      </column>
     </widget>

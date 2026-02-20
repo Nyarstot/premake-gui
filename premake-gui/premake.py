@@ -36,8 +36,11 @@ class PGuiGroup(object):
         self.name:str = name
         self.includes:list[str] = []
 
+    def __repr__(self) -> str:
+        return f"{self.name}:{self.includes}"
+
     def __str__(self) -> str:
-        return f"group {self.name}:{self.includes}"
+        return f"{self.name}:{self.includes}"
 
 class PGuiWorkspace(object):
 
@@ -63,37 +66,41 @@ class PGuiProject(object):
         self.language:str = None
         self.characterset:str = None
         self.cppdialect:str = None
+        self.pchheader:str = None
+        self.pchsource:str = None
 
 class PremakeCallContext(object):
 
-    def __init__(self, name:str) -> None:
-        self.name = name
+    class VisitContext(IntEnum):
+        GLOBAL = 0
+        WORKSPACE = 1
+        PROJECT = 2
+
+    def __init__(self) -> None:
+        self.writing_group:bool = False
+        self.group_context:PGuiGroup = None
+        self.visit_context:int = self.VisitContext.GLOBAL
 
 class PremakeCallVisitor(ast.ASTVisitor):
 
     GENERAL_KEYS = {"include"}
     WORKSPACE_KEYS = {"architecture", "configurations", "startproject", "group"}
-    PROJECT_KEYS = {"kind", "language", "characterset", "cppdialect"}
-
-    class CallContext(IntEnum):
-        GLOBAL = 0
-        WORKSPACE = 1
-        PROJECT = 2
+    PROJECT_KEYS = {"kind", "language", "characterset", "cppdialect", "pchheader", "pchsource", "files", "includedirs", "defines", "links", "postbuildcommands"}
 
     def __init__(self) -> None:
         self.includes = []
         self.globals = None
         self.workspace = None
         self.project = None
-        self.current_context = self.CallContext.GLOBAL
+        self.call_context = PremakeCallContext()
 
     def __get_working_ctx(self) -> None:
         work_ctx = None
-        if self.current_context == self.CallContext.GLOBAL:
+        if self.call_context.visit_context == PremakeCallContext.VisitContext.GLOBAL:
             work_ctx = self.globals
-        elif self.current_context == self.CallContext.WORKSPACE:
+        elif self.call_context.visit_context == PremakeCallContext.VisitContext.WORKSPACE:
             work_ctx = self.workspace
-        elif self.current_context == self.CallContext.PROJECT:
+        elif self.call_context.visit_context == PremakeCallContext.VisitContext.PROJECT:
             work_ctx = self.workspace
 
         return work_ctx
@@ -102,17 +109,31 @@ class PremakeCallVisitor(ast.ASTVisitor):
         if func_name == "architecture": self.workspace.architecture = arg.s
         elif func_name == "configurations": self.workspace.configurations = convert_lua_table_to_pytable(arg)
         elif func_name == "startproject": self.workspace.startproject = arg.s
-        elif func_name == "group": print(arg)
+        elif func_name == "group":
+            if arg.s == "":
+                self.call_context.group_context = None
+                self.call_context.writing_group = False
+                return
+
+            group_obj = PGuiGroup(arg.s)
+            self.call_context.group_context = group_obj
+            self.call_context.writing_group = True
+            self.workspace.groups.append(group_obj)
 
     def __handle_general_key(self, func_name:str, arg:str) -> None:
         work_ctx = self.__get_working_ctx()
-        if func_name == "include": print(arg.s)
+        if func_name == "include":
+            if self.call_context.writing_group:
+                group_object:PGuiGroup = self.call_context.group_context
+                group_object.includes.append(arg.s)
 
     def __handle_project_key(self, func_name:str, arg:str) -> None:
         if func_name == "kind": self.project.kind = arg.s
         elif func_name == "language": self.project.language = arg.s
         elif func_name == "characterset": self.project.characterset = arg.s
         elif func_name == "cppdialect": self.project.cppdialect = arg.s
+        elif func_name == "pchheader": self.project.pchheader = arg.s
+        elif func_name == "pchsource": self.project.pchsource = arg.s
 
     def visit_Call(self, node:ast.Call):
         func_name = ""
@@ -129,15 +150,12 @@ class PremakeCallVisitor(ast.ASTVisitor):
         for arg in node.args:
             if func_name == "workspace":
                 self.workspace = PGuiWorkspace(arg.s)
-                self.current_context = self.CallContext.WORKSPACE
+                self.call_context.visit_context = PremakeCallContext.VisitContext.WORKSPACE
                 continue
             if func_name == "project":
                 self.project = PGuiProject(arg.s)
-                self.current_context = self.CallContext.PROJECT
+                self.call_context.visit_context = PremakeCallContext.VisitContext.PROJECT
                 continue
-            
-            if isinstance(arg, astnodes.Table):
-                convert_lua_table_to_pytable(arg)
 
             if func_name in PremakeCallVisitor.GENERAL_KEYS:
                 self.__handle_general_key(func_name, arg)

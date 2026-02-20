@@ -1,3 +1,5 @@
+import os
+import sys
 from enum import IntEnum
 
 from PyQt5.uic import loadUi
